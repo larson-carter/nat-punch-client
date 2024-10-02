@@ -41,18 +41,25 @@ def send_heartbeat(client_id, server_url):
 
 
 def udp_hole_punching(my_port, peer_ip, peer_port):
-    # Bind to the local IP (0.0.0.0) and the selected port
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(('0.0.0.0', my_port))  # Bind to all available interfaces with the specified port
+    sock.bind(('0.0.0.0', my_port))
 
     print(f"Attempting to connect to {peer_ip}:{peer_port}")
 
-    # Send initial message to peer to punch hole
-    sock.sendto(b"Hello from behind NAT!", (peer_ip, peer_port))
+    # Retry sending the message multiple times
+    retries = 10  # Increase the number of retries
+    for attempt in range(retries):
+        print(f"Sending message to {peer_ip}:{peer_port}, attempt {attempt + 1}/{retries}")
+        sock.sendto(b"Hello from behind NAT!", (peer_ip, peer_port))
+        time.sleep(5)  # Increase wait time to 5 seconds between retries
 
-    # Listen for response
-    data, addr = sock.recvfrom(1024)
-    print(f"Received message from {addr}: {data.decode()}")
+    try:
+        # Listen for response
+        sock.settimeout(20)  # Increase timeout for receiving a response
+        data, addr = sock.recvfrom(1024)
+        print(f"Received message from {addr}: {data.decode()}")
+    except socket.timeout:
+        print("Did not receive any response, connection might have failed.")
 
 
 if __name__ == "__main__":
@@ -88,6 +95,8 @@ if __name__ == "__main__":
     response = requests.get(f"{server_url}/api/peer-info/{peer_id}")
     if response.status_code == 200:
         peer_info = response.json()
+        print(f"Peer info received: IP={peer_info['public_ip']}, Port={peer_info['public_port']}")
         udp_hole_punching(public_port, peer_info['public_ip'], peer_info['public_port'])
     else:
         print(f"Failed to get peer info: {response.content}")
+
