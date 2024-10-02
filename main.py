@@ -40,9 +40,10 @@ def send_heartbeat(client_id, server_url):
         time.sleep(5)  # Send heartbeat every 5 seconds
 
 
-def udp_hole_punching(my_ip, my_port, peer_ip, peer_port):
+def udp_hole_punching(my_port, peer_ip, peer_port):
+    # Bind to the local IP (0.0.0.0) and the selected port
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind((my_ip, my_port))
+    sock.bind(('0.0.0.0', my_port))  # Bind to all available interfaces with the specified port
 
     print(f"Attempting to connect to {peer_ip}:{peer_port}")
 
@@ -64,6 +65,16 @@ if __name__ == "__main__":
         print(f"Error getting public IP and port: {e}")
         exit(1)
 
+    # Ask user if they want to change the port
+    change_port = input(f"STUN selected port {public_port}. Do you want to change it? (yes/no): ").strip().lower()
+
+    if change_port == "yes":
+        try:
+            public_port = int(input("Enter the custom port you want to use: ").strip())
+            print(f"Using custom port: {public_port}")
+        except ValueError:
+            print("Invalid port number, using the STUN-selected port.")
+
     client_id = input("Enter client ID (A or B): ").strip()
     peer_id = "B" if client_id == "A" else "A"
 
@@ -77,6 +88,6 @@ if __name__ == "__main__":
     response = requests.get(f"{server_url}/api/peer-info/{peer_id}")
     if response.status_code == 200:
         peer_info = response.json()
-        udp_hole_punching(public_ip, public_port, peer_info['public_ip'], peer_info['public_port'])
+        udp_hole_punching(public_port, peer_info['public_ip'], peer_info['public_port'])
     else:
         print(f"Failed to get peer info: {response.content}")
