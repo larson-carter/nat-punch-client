@@ -4,7 +4,6 @@ import time
 import threading
 import stun
 
-
 def get_public_ip_port():
     # Use STUN to get public IP and port
     nat_type, external_ip, external_port = stun.get_ip_info()
@@ -13,7 +12,6 @@ def get_public_ip_port():
         return external_ip, external_port
     else:
         raise Exception("Failed to get public IP and port from STUN")
-
 
 def register_with_server(client_id, public_ip, public_port, server_url):
     payload = {
@@ -27,7 +25,6 @@ def register_with_server(client_id, public_ip, public_port, server_url):
     else:
         print(f"Failed to register: {response.content}")
 
-
 def send_heartbeat(client_id, server_url):
     while True:
         payload = {'client_id': client_id}
@@ -38,7 +35,6 @@ def send_heartbeat(client_id, server_url):
             print(f"Failed to send heartbeat: {response.content}")
 
         time.sleep(5)  # Send heartbeat every 5 seconds
-
 
 def wait_for_go_signal(client_id, server_url):
     while True:
@@ -51,28 +47,45 @@ def wait_for_go_signal(client_id, server_url):
                 print("Waiting for peer to be ready...")
                 time.sleep(5)  # Poll every 5 seconds
 
-
 def udp_hole_punching(my_port, peer_ip, peer_port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(('0.0.0.0', my_port))
+    sock.settimeout(1)  # Set a short timeout for non-blocking receives
 
     print(f"Attempting to connect to {peer_ip}:{peer_port}")
 
-    # Retry sending the message multiple times
-    retries = 10  # Increase the number of retries
-    for attempt in range(retries):
-        print(f"Sending message to {peer_ip}:{peer_port}, attempt {attempt + 1}/{retries}")
-        sock.sendto(b"Hello from behind NAT!", (peer_ip, peer_port))
-        time.sleep(5)  # Increase wait time to 5 seconds between retries
+    def send_message():
+        while True:
+            try:
+                print(f"Sending message to {peer_ip}:{peer_port}")
+                sock.sendto(b"Hello from behind NAT!", (peer_ip, peer_port))
+                time.sleep(1)
+            except Exception as e:
+                print(f"Error sending message: {e}")
 
-    try:
-        # Listen for response
-        sock.settimeout(20)  # Increase timeout for receiving a response
-        data, addr = sock.recvfrom(1024)
-        print(f"Received message from {addr}: {data.decode()}")
-    except socket.timeout:
-        print("Did not receive any response, connection might have failed.")
+    send_thread = threading.Thread(target=send_message)
+    send_thread.daemon = True
+    send_thread.start()
 
+    start_time = time.time()
+    while time.time() - start_time < 60:  # Run for 60 seconds
+        try:
+            data, addr = sock.recvfrom(1024)
+            print(f"Received message from {addr}: {data.decode()}")
+            # Optionally, send a response back
+            sock.sendto(b"Received your message!", addr)
+        except socket.timeout:
+            pass
+        except Exception as e:
+            print(f"Error receiving message: {e}")
+
+    print("UDP hole punching attempt finished")
+
+def try_multiple_ports(base_port, peer_ip, peer_port, range_size=10):
+    for port_offset in range(-range_size, range_size + 1):
+        target_port = peer_port + port_offset
+        print(f"Trying port {target_port}")
+        udp_hole_punching(base_port, peer_ip, target_port)
 
 if __name__ == "__main__":
     server_url = "https://nat-puncher.carter.tech"  # Your Laravel server URL
@@ -101,7 +114,7 @@ if __name__ == "__main__":
     register_with_server(client_id, public_ip, public_port, server_url)
 
     # Start sending heartbeats in a separate thread
-    threading.Thread(target=send_heartbeat, args=(client_id, server_url)).start()
+    threading.Thread(target=send_heartbeat, args=(client_id, server_url), daemon=True).start()
 
     # Wait for 'go' signal to start UDP punching
     wait_for_go_signal(client_id, server_url)
@@ -111,6 +124,6 @@ if __name__ == "__main__":
     if response.status_code == 200:
         peer_info = response.json()
         print(f"Peer info received: IP={peer_info['public_ip']}, Port={peer_info['public_port']}")
-        udp_hole_punching(public_port, peer_info['public_ip'], peer_info['public_port'])
+        try_multiple_ports(public_port, peer_info['public_ip'], peer_info['public_port'])
     else:
         print(f"Failed to get peer info: {response.content}")
