@@ -40,6 +40,18 @@ def send_heartbeat(client_id, server_url):
         time.sleep(5)  # Send heartbeat every 5 seconds
 
 
+def wait_for_go_signal(client_id, server_url):
+    while True:
+        response = requests.post(f"{server_url}/api/start", json={'client_id': client_id})
+        if response.status_code == 200:
+            if response.json().get('status') == 'go':
+                print("Received 'go' signal, starting UDP hole punching")
+                return
+            else:
+                print("Waiting for peer to be ready...")
+                time.sleep(5)  # Poll every 5 seconds
+
+
 def udp_hole_punching(my_port, peer_ip, peer_port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(('0.0.0.0', my_port))
@@ -91,6 +103,9 @@ if __name__ == "__main__":
     # Start sending heartbeats in a separate thread
     threading.Thread(target=send_heartbeat, args=(client_id, server_url)).start()
 
+    # Wait for 'go' signal to start UDP punching
+    wait_for_go_signal(client_id, server_url)
+
     # Get peer info (to implement NAT punching)
     response = requests.get(f"{server_url}/api/peer-info/{peer_id}")
     if response.status_code == 200:
@@ -99,4 +114,3 @@ if __name__ == "__main__":
         udp_hole_punching(public_port, peer_info['public_ip'], peer_info['public_port'])
     else:
         print(f"Failed to get peer info: {response.content}")
-
